@@ -75,6 +75,11 @@ function hashtagsFor(city) {
   return Array.from(picks);
 }
 
+function summarize(text, max) {
+  if (!text) return "";
+  return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
+}
+
 function scoreColor(score) {
   if (score >= 80) return "#FF8A3D";
   if (score >= 60) return "#3DD6C4";
@@ -183,22 +188,25 @@ export default function App() {
     return () => { cancelled = true; };
   }, [persona, envMissing]);
 
-  // --- Ticker: últimos sinais captados (qualquer fonte) ---
+  // --- Ticker: sinal mais recente de várias cidades diferentes (1 por cidade, resumido) ---
   useEffect(() => {
     if (envMissing) return;
     supabase
       .from("raw_signals")
       .select("title, source, captured_at, municipios(name)")
       .order("captured_at", { ascending: false })
-      .limit(10)
+      .limit(150)
       .then(({ data }) => {
-        setTicker(
-          (data || []).map(s => ({
-            city: s.municipios?.name || "MG",
-            msg: s.title,
-            source: s.source,
-          }))
-        );
+        const seenCities = new Set();
+        const items = [];
+        for (const s of data || []) {
+          const city = s.municipios?.name || "MG";
+          if (seenCities.has(city)) continue;
+          seenCities.add(city);
+          items.push({ city, msg: summarize(s.title, 70), source: s.source });
+          if (items.length >= 15) break;
+        }
+        setTicker(items);
       });
   }, [envMissing]);
 
@@ -289,7 +297,7 @@ export default function App() {
         @keyframes tickerScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         .pulse-dot { animation: pulse 2s ease-in-out infinite; }
         .feed-item { animation: feedIn 0.35s ease-out; }
-        .ticker-track { animation: tickerScroll 120s linear infinite; }
+        .ticker-track { animation: tickerScroll 210s linear infinite; }
         .ticker-track:hover { animation-play-state: paused; }
       `}</style>
 
