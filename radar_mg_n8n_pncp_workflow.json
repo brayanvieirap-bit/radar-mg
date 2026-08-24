@@ -1,0 +1,176 @@
+{
+  "name": "RADAR MG — Coleta PNCP",
+  "nodes": [
+    {
+      "id": "sticky_leia_antes",
+      "name": "LEIA ANTES DE USAR",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [220, -80],
+      "parameters": {
+        "width": 620,
+        "height": 260,
+        "content": "## Workflow ajustado ao schema original (radar_mg_schema.sql)\n\nEsse workflow só cobre a fonte PNCP — as outras 5 fontes (CEMPRE, ComexStat, CAGED, IDSC, G1) citadas no schema ainda precisam de workflows próprios, não incluídos aqui. Antes de rodar:\n\n1. Rode `radar_mg_schema.sql` no Supabase primeiro (schema original, com enums persona_type/source_type/potential_band).\n2. Configure a credencial **Supabase** nos 2 nodes Supabase abaixo (Host = sua Project URL, Service Key = SUPABASE_SERVICE_ROLE_KEY — nunca a anon).\n3. No node **Rodar calculate_scores()**, troque a URL e as duas chaves 'COLE_AQUI...' pela sua Project URL + service_role key.\n4. Confira os nomes de campo da resposta da PNCP no node 'Transformar em raw_signals' contra a documentação atual: https://pncp.gov.br/api/consulta/swagger-ui/index.html — a API pública pode ter mudado campos desde o meu conhecimento.\n5. O signal_type é classificado por palavra-chave no objeto da contratação ('obra_rodoviaria' vs 'edital_aberto') pra bater com o que existe em scoring_weights — ajuste as palavras-chave se a classificação vier ruim.\n6. Rode uma vez manualmente. Se quiser automatizar, troque o trigger manual por um Schedule Trigger."
+      }
+    },
+    {
+      "id": "trigger_manual",
+      "name": "Executar manualmente",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 260]
+    },
+    {
+      "id": "list_municipios",
+      "name": "Listar municípios",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [460, 260],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "municipios",
+        "returnAll": true
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase RADAR MG (service_role)"
+        }
+      }
+    },
+    {
+      "id": "loop_municipios",
+      "name": "Para cada município",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 260],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "build_params",
+      "name": "Montar período de busca",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 160],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const hoje = new Date();\nconst inicio = new Date();\ninicio.setDate(hoje.getDate() - 30);\nconst fmt = d => d.toISOString().slice(0, 10).replace(/-/g, \"\");\n\nreturn {\n  json: {\n    ...$json,\n    dataInicial: fmt(inicio),\n    dataFinal: fmt(hoje),\n  }\n};"
+      }
+    },
+    {
+      "id": "http_pncp",
+      "name": "Consultar PNCP (contratações)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 160],
+      "parameters": {
+        "method": "GET",
+        "url": "https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "dataInicial", "value": "={{ $json.dataInicial }}" },
+            { "name": "dataFinal", "value": "={{ $json.dataFinal }}" },
+            { "name": "codigoModalidadeContratacao", "value": "6" },
+            { "name": "uf", "value": "MG" },
+            { "name": "municipioIbge", "value": "={{ $json.ibge_code }}" },
+            { "name": "pagina", "value": "1" },
+            { "name": "tamanhoPagina", "value": "50" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "map_signals",
+      "name": "Transformar em raw_signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 160],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const municipioId = $('Para cada município').item.json.id;\nconst response = $input.first().json;\nconst registros = response.data || response.registros || response.content || [];\n\n// classifica por palavra-chave pra bater com scoring_weights.signal_type\n// (que só tem 'edital_aberto' e 'obra_rodoviaria' associados a source='pncp')\nconst PALAVRAS_RODOVIA = [\"rodovia\", \"rodoviari\", \"pavimenta\", \"estrada\", \"bueiro\", \"ponte\", \"viaduto\"];\nfunction classificar(objeto) {\n  const texto = (objeto || \"\").toLowerCase();\n  return PALAVRAS_RODOVIA.some(p => texto.includes(p)) ? \"obra_rodoviaria\" : \"edital_aberto\";\n}\n\nreturn registros.map(r => {\n  const objeto = (r.objetoCompra || r.objeto || \"Contratação pública\").toString().slice(0, 500);\n  return {\n    json: {\n      municipio_id: municipioId,\n      source: \"pncp\",\n      signal_type: classificar(objeto),\n      title: objeto,\n      value_numeric: r.valorTotalEstimado || r.valorGlobal || null,\n      value_json: r,\n      published_at: (r.dataPublicacaoPncp || r.dataInclusao || \"\").toString().slice(0, 10) || null,\n      external_id: r.numeroControlePNCP || r.numeroControlePncp || `${r.sequencialCompra || \"\"}-${r.orgaoEntidade?.cnpj || \"\"}`,\n    }\n  };\n});"
+      }
+    },
+    {
+      "id": "insert_signals",
+      "name": "Gravar em raw_signals",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1560, 160],
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "raw_signals",
+        "dataToSend": "autoMapInputData"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase RADAR MG (service_role)"
+        }
+      }
+    },
+    {
+      "id": "call_calculate_scores",
+      "name": "Rodar calculate_scores()",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "https://SEU-PROJETO.supabase.co/rest/v1/rpc/calculate_scores",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "COLE_AQUI_A_SERVICE_ROLE_KEY" },
+            { "name": "Authorization", "value": "Bearer COLE_AQUI_A_SERVICE_ROLE_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Executar manualmente": {
+      "main": [[{ "node": "Listar municípios", "type": "main", "index": 0 }]]
+    },
+    "Listar municípios": {
+      "main": [[{ "node": "Para cada município", "type": "main", "index": 0 }]]
+    },
+    "Para cada município": {
+      "main": [
+        [{ "node": "Rodar calculate_scores()", "type": "main", "index": 0 }],
+        [{ "node": "Montar período de busca", "type": "main", "index": 0 }]
+      ]
+    },
+    "Montar período de busca": {
+      "main": [[{ "node": "Consultar PNCP (contratações)", "type": "main", "index": 0 }]]
+    },
+    "Consultar PNCP (contratações)": {
+      "main": [[{ "node": "Transformar em raw_signals", "type": "main", "index": 0 }]]
+    },
+    "Transformar em raw_signals": {
+      "main": [[{ "node": "Gravar em raw_signals", "type": "main", "index": 0 }]]
+    },
+    "Gravar em raw_signals": {
+      "main": [[{ "node": "Para cada município", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "radar-mg-reconstruido"
+  }
+}
