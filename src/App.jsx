@@ -224,17 +224,23 @@ export default function App() {
 
   const activeCity = scoresData.find(c => c.name === selectedCity) || filtered[0] || scoresData[0];
 
-  // --- Notícias reais da cidade ativa (Supabase) ---
+  // --- Notícias reais ao vivo (Supabase) — sempre as mais recentes de MG,
+  // independente da cidade selecionada; refaz a busca a cada 60s ---
   useEffect(() => {
-    if (envMissing || !activeCity) { setNews([]); return; }
-    supabase
-      .from("news_items")
-      .select("headline, source, url, published_at, comment_count")
-      .eq("municipio_id", activeCity.id)
-      .order("published_at", { ascending: false })
-      .limit(6)
-      .then(({ data }) => setNews(data || []));
-  }, [activeCity, envMissing]);
+    if (envMissing) { setNews([]); return; }
+    let cancelled = false;
+    function fetchNews() {
+      supabase
+        .from("news_items")
+        .select("headline, source, url, published_at, comment_count, municipios(name)")
+        .order("published_at", { ascending: false })
+        .limit(20)
+        .then(({ data }) => { if (!cancelled) setNews(data || []); });
+    }
+    fetchNews();
+    const interval = setInterval(fetchNews, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [envMissing]);
 
   const filteredNews = news.filter(n => n.headline.toLowerCase().includes(newsQuery.toLowerCase()));
 
@@ -522,14 +528,14 @@ export default function App() {
             <div style={{ border: "1px solid #2A3441", borderRadius: 4, padding: 16, background: "#0F141A", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
                 <Newspaper size={13} color="#FF8A3D" />
-                <div className="mono" style={{ fontSize: 10, color: "#5B6675", letterSpacing: 1 }}>NOTÍCIAS — {activeCity?.name?.toUpperCase() || "—"}</div>
+                <div className="mono" style={{ fontSize: 10, color: "#5B6675", letterSpacing: 1 }}>NOTÍCIAS — AO VIVO (MG)</div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
                 {filteredNews.map((n, i) => (
                   <a key={i} href={n.url} target="_blank" rel="noreferrer" style={{ paddingBottom: 12, borderBottom: i < filteredNews.length - 1 ? "1px solid #1E2530" : "none", textDecoration: "none", color: "inherit", display: "block" }}>
                     <div style={{ fontSize: 12.5, fontWeight: 500, lineHeight: 1.4, color: "#E9EDF2", marginBottom: 5 }}>{n.headline}</div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span className="mono" style={{ fontSize: 10, color: "#3DD6C4" }}>{n.source}</span>
+                      <span className="mono" style={{ fontSize: 10, color: "#3DD6C4" }}>{n.source}{n.municipios?.name ? ` · ${n.municipios.name}` : ""}</span>
                       <ExternalLink size={10} color="#5B6675" />
                     </div>
                   </a>
@@ -537,7 +543,7 @@ export default function App() {
                 {filteredNews.length === 0 && (
                   <div style={{ fontSize: 11.5, color: "#5B6675", padding: "8px 0" }}>
                     {news.length === 0
-                      ? "Nenhuma notícia captada ainda para essa cidade pelo workflow do G1 (RSS)."
+                      ? "Nenhuma notícia captada ainda pelo workflow do G1 (RSS)."
                       : "Nenhuma notícia bate com essa busca."}
                   </div>
                 )}
