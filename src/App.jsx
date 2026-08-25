@@ -536,7 +536,9 @@ export default function App() {
                 ))}
                 {filteredNews.length === 0 && (
                   <div style={{ fontSize: 11.5, color: "#5B6675", padding: "8px 0" }}>
-                    Nenhuma notícia ainda para essa cidade — o workflow do G1 (RSS) ainda não foi construído nesta fase.
+                    {news.length === 0
+                      ? "Nenhuma notícia captada ainda para essa cidade pelo workflow do G1 (RSS)."
+                      : "Nenhuma notícia bate com essa busca."}
                   </div>
                 )}
               </div>
