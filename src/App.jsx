@@ -92,7 +92,24 @@ function potentialBand(score) {
   return { key: "baixo", label: "Baixo Potencial", color: "#5B6675" };
 }
 
+// Empilha a sidebar sobre o conteúdo principal e encolhe os respiros em telas
+// estreitas (celular). 860px cobre tablets pequenos também.
+function useIsMobile(breakpoint = 860) {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= breakpoint : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 export default function App() {
+  const isMobile = useIsMobile();
   const [ecosystem, setEcosystem] = useState(ECOSYSTEMS[2]); // Investidores por padrão
   const [persona, setPersona] = useState(PERSONAS.find(p => p.id === "investidor"));
   const [search, setSearch] = useState("");
@@ -307,7 +324,7 @@ export default function App() {
         .ticker-track:hover { animation-play-state: paused; }
       `}</style>
 
-      <div style={{ borderBottom: "1px solid #2A3441", padding: "18px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+      <div style={{ borderBottom: "1px solid #2A3441", padding: isMobile ? "14px 16px" : "18px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 34, height: 34, border: "1.5px solid #3DD6C4", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <RadarIcon size={18} color="#3DD6C4" />
@@ -326,7 +343,7 @@ export default function App() {
       </div>
 
       {/* Ecossistema (nível 1) */}
-      <div style={{ borderBottom: "1px solid #2A3441", padding: "14px 28px 0", display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ borderBottom: "1px solid #2A3441", padding: isMobile ? "12px 16px 0" : "14px 28px 0", display: "flex", gap: 10, flexWrap: "wrap" }}>
         {ECOSYSTEMS.map(eco => {
           const active = eco.id === ecosystem.id;
           return (
@@ -347,7 +364,7 @@ export default function App() {
       </div>
 
       {/* Persona (nível 2, dentro do ecossistema ativo) */}
-      <div style={{ borderBottom: "1px solid #2A3441", padding: "12px 28px", display: "flex", gap: 8, flexWrap: "wrap", background: "#0A0D11" }}>
+      <div style={{ borderBottom: "1px solid #2A3441", padding: isMobile ? "10px 16px" : "12px 28px", display: "flex", gap: 8, flexWrap: "wrap", background: "#0A0D11" }}>
         {personasInEcosystem.map(p => {
           const Icon = p.icon;
           const active = p.id === persona.id;
@@ -365,13 +382,13 @@ export default function App() {
       </div>
 
       {errorMsg && (
-        <div style={{ background: "#2A1418", color: "#FF8A3D", padding: "10px 28px", fontSize: 12.5 }}>
+        <div style={{ background: "#2A1418", color: "#FF8A3D", padding: isMobile ? "10px 16px" : "10px 28px", fontSize: 12.5 }}>
           Erro ao consultar Supabase: {errorMsg}
         </div>
       )}
 
       {!loading && scoresData.length === 0 && !errorMsg && (
-        <div style={{ background: "#151B23", color: "#8A96A6", padding: "12px 28px", fontSize: 12.5, borderBottom: "1px solid #2A3441" }}>
+        <div style={{ background: "#151B23", color: "#8A96A6", padding: isMobile ? "12px 16px" : "12px 28px", fontSize: 12.5, borderBottom: "1px solid #2A3441" }}>
           Nenhum score encontrado ainda para essa persona. Rode o workflow n8n do PNCP pelo menos uma vez e execute <code className="mono">select calculate_scores();</code> no Supabase.
         </div>
       )}
@@ -397,8 +414,12 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 0 }}>
-        <div style={{ width: 240, flexShrink: 0, borderRight: "1px solid #2A3441", padding: "22px 20px" }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 0 }}>
+        <div style={{
+          width: isMobile ? "100%" : 240, flexShrink: 0, padding: isMobile ? "18px 16px" : "22px 20px",
+          borderRight: isMobile ? "none" : "1px solid #2A3441",
+          borderBottom: isMobile ? "1px solid #2A3441" : "none",
+        }}>
           <div className="mono" style={{ fontSize: 10, color: "#5B6675", letterSpacing: 1.2, marginBottom: 14 }}>FILTROS · {persona.focus.toUpperCase()}</div>
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: 11.5, color: "#8A96A6", display: "block", marginBottom: 6 }}>Buscar cidade</label>
@@ -434,7 +455,7 @@ export default function App() {
               <input value={newsQuery} onChange={e => setNewsQuery(e.target.value)} placeholder="Buscar palavra-chave..."
                 style={{ background: "transparent", border: "none", color: "#E9EDF2", fontSize: 12.5, width: "100%" }} />
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 220, maxHeight: 520, overflowY: "auto", paddingRight: 4 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: isMobile ? 0 : 220, maxHeight: isMobile ? 300 : 520, overflowY: "auto", paddingRight: 4 }}>
               {filteredNews.map((n, i) => (
                 <a key={i} href={n.url} target="_blank" rel="noreferrer" style={{ paddingBottom: 12, borderBottom: i < filteredNews.length - 1 ? "1px solid #1E2530" : "none", textDecoration: "none", color: "inherit", display: "block" }}>
                   <div style={{ fontSize: 12.5, fontWeight: 500, lineHeight: 1.4, color: "#E9EDF2", marginBottom: 5 }}>{n.headline}</div>
@@ -455,8 +476,8 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ flex: 1, padding: "22px 28px", display: "flex", gap: 26, flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 340 }}>
+        <div style={{ flex: 1, padding: isMobile ? "16px 14px" : "22px 28px", display: "flex", gap: 26, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: isMobile ? "100%" : 340 }}>
             <div style={{ border: "1px solid #2A3441", borderRadius: 4, padding: 16, background: "#0F141A", marginBottom: 16 }}>
               <div className="mono" style={{ fontSize: 10, color: "#5B6675", letterSpacing: 1, marginBottom: 12 }}>DIAGNÓSTICO DE POTENCIAL — {persona.label.toUpperCase()}</div>
               <div style={{ display: "flex", gap: 10 }}>
@@ -510,7 +531,7 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ width: 320, flexShrink: 0 }}>
+          <div style={{ width: isMobile ? "100%" : 320, flexShrink: 0 }}>
             {/* Relatório executivo (PDF real via /api/relatorio) */}
             <div style={{ border: "1px solid #2A3441", borderRadius: 4, padding: 16, background: "#0F141A", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
