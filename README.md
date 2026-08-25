@@ -49,6 +49,24 @@ navegador e destruiria a proteção do RLS.
 Localmente, pra testar a função (`vercel dev`, não `npm run dev` sozinho), crie
 essas mesmas duas variáveis no `.env`.
 
+## Agente de pesquisa aprofundada (relatório)
+
+Ao gerar o Relatório Executivo, `/api/relatorio.js` aciona um agente (Claude,
+com busca na web) que pesquisa dados atuais sobre o município — economia,
+investimentos, infraestrutura — e adiciona uma seção "Pesquisa aprofundada"
+ao PDF. **Esse agente só roda nesse momento**, sob demanda; não há nenhum
+processo em segundo plano.
+
+Precisa de mais uma variável de ambiente no backend (nunca com prefixo `VITE_`):
+
+```
+ANTHROPIC_API_KEY=sua-chave-da-api-da-anthropic-aqui
+```
+
+Gere a chave em [console.anthropic.com](https://console.anthropic.com/settings/keys)
+e cadastre na Vercel junto das outras. Sem essa variável, o relatório continua
+sendo gerado normalmente — só que sem a seção de pesquisa aprofundada.
+
 ## Deploy (Vercel)
 
 ```bash

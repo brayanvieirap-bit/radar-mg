@@ -7,11 +7,59 @@ import { createClient } from "@supabase/supabase-js";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import React from "react";
+import Anthropic from "@anthropic-ai/sdk";
+
+export const maxDuration = 60;
 
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+
+const PERSONA_LABELS = {
+  prefeito: "um(a) Prefeito(a) buscando captação de investimento e benchmarking regional",
+  secretario: "um(a) Secretário(a) de Desenvolvimento Econômico avaliando vocação econômica e mão de obra",
+  deputado: "um(a) pré-candidato(a) a Deputado avaliando vácuo político e comparativo de emendas",
+  logistica: "uma Transportadora/empresa de Logística avaliando fluxo de carga e obras rodoviárias",
+  investidor: "um(a) Investidor(a)/Exportador(a) avaliando infraestrutura, incentivo fiscal e logística",
+};
+
+// Agente de pesquisa: só é acionado aqui, dentro da geração de relatório —
+// nunca roda em segundo plano nem é chamado por outra rota.
+async function pesquisarDadosAprofundados(municipio, persona) {
+  if (!anthropic) return null;
+  const foco = PERSONA_LABELS[persona] || `a persona "${persona}"`;
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-opus-5",
+      max_tokens: 1500,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
+      messages: [
+        {
+          role: "user",
+          content:
+            `Pesquise informações atuais e relevantes sobre o município de ${municipio.name}, ` +
+            `Minas Gerais (Brasil), com foco no que interessaria a ${foco}: economia local, ` +
+            `investimentos recentes, infraestrutura, indicadores de desenvolvimento e oportunidades ` +
+            `de negócio. Responda em português, em até 4 parágrafos curtos e objetivos, citando as ` +
+            `fontes entre parênteses quando possível. Não invente dados — baseie-se apenas no que ` +
+            `encontrar nas buscas; se não encontrar nada relevante, diga isso claramente.`,
+        },
+      ],
+    });
+    const texto = response.content
+      .filter(b => b.type === "text")
+      .map(b => b.text)
+      .join("\n\n")
+      .trim();
+    return texto || null;
+  } catch (err) {
+    console.error("Pesquisa aprofundada (agente) falhou:", err.message);
+    return null;
+  }
+}
 
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 10, fontFamily: "Helvetica", color: "#444441" },
@@ -41,7 +89,7 @@ function potentialBand(score) {
   return { label: "Baixo Potencial", color: "#5F5E5A" };
 }
 
-function ReportDocument({ municipio, persona, scoreRow, signals, news }) {
+function ReportDocument({ municipio, persona, scoreRow, signals, news, research }) {
   const band = potentialBand(Number(scoreRow?.score || 0));
   return React.createElement(
     Document,
@@ -102,6 +150,22 @@ function ReportDocument({ municipio, persona, scoreRow, signals, news }) {
         ? React.createElement(Text, { style: styles.body }, "Nenhuma notícia registrada ainda para este município.")
         : news.map((n, i) => React.createElement(Text, { style: styles.body, key: i }, `• ${n.headline} (${n.source})`)),
 
+      React.createElement(Text, { style: styles.sectionHeading }, "Pesquisa aprofundada (agente de IA)"),
+      research
+        ? research
+            .split("\n\n")
+            .map((par, i) => React.createElement(Text, { style: [styles.body, { marginBottom: 6 }], key: i }, par))
+        : React.createElement(
+            Text,
+            { style: styles.body },
+            "Pesquisa aprofundada indisponível para este relatório (agente não configurado ou sem resultados)."
+          ),
+      research && React.createElement(
+        Text,
+        { style: styles.disclaimer },
+        "A seção acima foi gerada por um agente de IA com busca na web no momento da emissão deste relatório. Pode conter imprecisões — trate como ponto de partida, não como fonte definitiva."
+      ),
+
       React.createElement(
         Text,
         { style: styles.disclaimer },
@@ -156,6 +220,9 @@ export default async function handler(req, res) {
       .order("published_at", { ascending: false })
       .limit(5);
 
+    // Agente de pesquisa aprofundada — acionado só aqui, sob demanda, ao gerar o relatório.
+    const research = await pesquisarDadosAprofundados(municipio, persona);
+
     const buffer = await renderToBuffer(
       React.createElement(ReportDocument, {
         municipio,
@@ -163,6 +230,7 @@ export default async function handler(req, res) {
         scoreRow: scoreRow || {},
         signals: signals || [],
         news: news || [],
+        research,
       })
     );
 
