@@ -415,12 +415,43 @@ export default function App() {
               {regions.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
-          <div>
+          <div style={{ marginBottom: 24 }}>
             <label style={{ fontSize: 11.5, color: "#8A96A6", display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
               <span>Score mínimo</span>
               <span className="mono" style={{ color: scoreColor(minScore) }}>{minScore}</span>
             </label>
             <input type="range" min="0" max="95" value={minScore} onChange={e => setMinScore(Number(e.target.value))} style={{ width: "100%", accentColor: "#FF8A3D" }} />
+          </div>
+
+          {/* Notícias reais (Supabase news_items) */}
+          <div style={{ borderTop: "1px solid #2A3441", paddingTop: 18, marginTop: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+              <Newspaper size={13} color="#FF8A3D" />
+              <div className="mono" style={{ fontSize: 10, color: "#5B6675", letterSpacing: 1 }}>NOTÍCIAS — AO VIVO (MG)</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", border: "1px solid #2A3441", borderRadius: 3, padding: "7px 10px", background: "#151B23", marginBottom: 12 }}>
+              <Search size={12} color="#5B6675" style={{ marginRight: 7 }} />
+              <input value={newsQuery} onChange={e => setNewsQuery(e.target.value)} placeholder="Buscar palavra-chave..."
+                style={{ background: "transparent", border: "none", color: "#E9EDF2", fontSize: 12.5, width: "100%" }} />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 220, maxHeight: 520, overflowY: "auto", paddingRight: 4 }}>
+              {filteredNews.map((n, i) => (
+                <a key={i} href={n.url} target="_blank" rel="noreferrer" style={{ paddingBottom: 12, borderBottom: i < filteredNews.length - 1 ? "1px solid #1E2530" : "none", textDecoration: "none", color: "inherit", display: "block" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 500, lineHeight: 1.4, color: "#E9EDF2", marginBottom: 5 }}>{n.headline}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span className="mono" style={{ fontSize: 10, color: "#3DD6C4" }}>{n.source}{n.municipios?.name ? ` · ${n.municipios.name}` : ""}</span>
+                    <ExternalLink size={10} color="#5B6675" />
+                  </div>
+                </a>
+              ))}
+              {filteredNews.length === 0 && (
+                <div style={{ fontSize: 11.5, color: "#5B6675", padding: "8px 0" }}>
+                  {news.length === 0
+                    ? "Nenhuma notícia captada ainda pelo workflow do G1 (RSS)."
+                    : "Nenhuma notícia bate com essa busca."}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -512,41 +543,6 @@ export default function App() {
                 {hashtags.map(h => (
                   <span key={h} style={{ fontSize: 11, color: "#FF8A3D", border: "1px solid #FF8A3D40", background: "#241a10", padding: "4px 9px", borderRadius: 3 }}>{h}</span>
                 ))}
-              </div>
-            </div>
-
-            {/* Notícias reais (Supabase news_items) */}
-            <div style={{ border: "1px solid #2A3441", borderRadius: 4, padding: 14, background: "#0F141A", marginBottom: 16 }}>
-              <div className="mono" style={{ fontSize: 10, color: "#5B6675", letterSpacing: 1, marginBottom: 10 }}>FILTRAR NOTÍCIAS</div>
-              <div style={{ display: "flex", alignItems: "center", border: "1px solid #2A3441", borderRadius: 3, padding: "7px 10px", background: "#151B23" }}>
-                <Search size={12} color="#5B6675" style={{ marginRight: 7 }} />
-                <input value={newsQuery} onChange={e => setNewsQuery(e.target.value)} placeholder="Buscar palavra-chave..."
-                  style={{ background: "transparent", border: "none", color: "#E9EDF2", fontSize: 12.5, width: "100%" }} />
-              </div>
-            </div>
-
-            <div style={{ border: "1px solid #2A3441", borderRadius: 4, padding: 16, background: "#0F141A", marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
-                <Newspaper size={13} color="#FF8A3D" />
-                <div className="mono" style={{ fontSize: 10, color: "#5B6675", letterSpacing: 1 }}>NOTÍCIAS — AO VIVO (MG)</div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
-                {filteredNews.map((n, i) => (
-                  <a key={i} href={n.url} target="_blank" rel="noreferrer" style={{ paddingBottom: 12, borderBottom: i < filteredNews.length - 1 ? "1px solid #1E2530" : "none", textDecoration: "none", color: "inherit", display: "block" }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 500, lineHeight: 1.4, color: "#E9EDF2", marginBottom: 5 }}>{n.headline}</div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span className="mono" style={{ fontSize: 10, color: "#3DD6C4" }}>{n.source}{n.municipios?.name ? ` · ${n.municipios.name}` : ""}</span>
-                      <ExternalLink size={10} color="#5B6675" />
-                    </div>
-                  </a>
-                ))}
-                {filteredNews.length === 0 && (
-                  <div style={{ fontSize: 11.5, color: "#5B6675", padding: "8px 0" }}>
-                    {news.length === 0
-                      ? "Nenhuma notícia captada ainda pelo workflow do G1 (RSS)."
-                      : "Nenhuma notícia bate com essa busca."}
-                  </div>
-                )}
               </div>
             </div>
 
