@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import React from "react";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
 export const maxDuration = 60;
 
@@ -16,7 +16,7 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
 
 const PERSONA_LABELS = {
   prefeito: "um(a) Prefeito(a) buscando captação de investimento e benchmarking regional",
@@ -29,31 +29,21 @@ const PERSONA_LABELS = {
 // Agente de pesquisa: só é acionado aqui, dentro da geração de relatório —
 // nunca roda em segundo plano nem é chamado por outra rota.
 async function pesquisarDadosAprofundados(municipio, persona) {
-  if (!anthropic) return null;
+  if (!openai) return null;
   const foco = PERSONA_LABELS[persona] || `a persona "${persona}"`;
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-opus-5",
-      max_tokens: 1500,
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
-      messages: [
-        {
-          role: "user",
-          content:
-            `Pesquise informações atuais e relevantes sobre o município de ${municipio.name}, ` +
-            `Minas Gerais (Brasil), com foco no que interessaria a ${foco}: economia local, ` +
-            `investimentos recentes, infraestrutura, indicadores de desenvolvimento e oportunidades ` +
-            `de negócio. Responda em português, em até 4 parágrafos curtos e objetivos, citando as ` +
-            `fontes entre parênteses quando possível. Não invente dados — baseie-se apenas no que ` +
-            `encontrar nas buscas; se não encontrar nada relevante, diga isso claramente.`,
-        },
-      ],
+    const response = await openai.responses.create({
+      model: "gpt-5.6",
+      tools: [{ type: "web_search" }],
+      input:
+        `Pesquise informações atuais e relevantes sobre o município de ${municipio.name}, ` +
+        `Minas Gerais (Brasil), com foco no que interessaria a ${foco}: economia local, ` +
+        `investimentos recentes, infraestrutura, indicadores de desenvolvimento e oportunidades ` +
+        `de negócio. Responda em português, em até 4 parágrafos curtos e objetivos, citando as ` +
+        `fontes entre parênteses quando possível. Não invente dados — baseie-se apenas no que ` +
+        `encontrar nas buscas; se não encontrar nada relevante, diga isso claramente.`,
     });
-    const texto = response.content
-      .filter(b => b.type === "text")
-      .map(b => b.text)
-      .join("\n\n")
-      .trim();
+    const texto = (response.output_text || "").trim();
     return texto || null;
   } catch (err) {
     console.error("Pesquisa aprofundada (agente) falhou:", err.message);
