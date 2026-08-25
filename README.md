@@ -17,7 +17,7 @@ Abre em `http://localhost:5173`.
 
 1. Execute `radar_mg_schema.sql` no SQL Editor do Supabase (cria tabelas + função `calculate_scores()`).
 2. Popule a tabela `municipios` com os municípios de MG que você quer monitorar.
-3. Importe e rode pelo menos uma vez o workflow n8n do PNCP (`radar_mg_n8n_pncp_workflow.json`).
+3. Importe e rode pelo menos uma vez o workflow n8n do PNCP (`radar_mg_n8n_pncp_workflow.json`) e o do G1 (`radar_mg_n8n_g1_workflow.json`).
 4. Se a tela mostrar "Nenhum score encontrado", rode manualmente no SQL Editor:
    ```sql
    select calculate_scores();
@@ -82,13 +82,26 @@ Depois:
 3. Em **Environment Variables**, cadastra `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
 4. Deploy. A cada push na branch principal, atualiza sozinho.
 
+## Workflow n8n do G1 (notícias)
+
+`radar_mg_n8n_g1_workflow.json` popula a tabela `news_items`: busca o RSS geral de
+Minas Gerais do G1 e casa cada matéria com os municípios cadastrados pelo nome
+(sem acento, minúsculo). Importe no n8n, configure a credencial Supabase e a URL/chaves
+do `calculate_scores()` (mesmos passos do workflow do PNCP), e leia a sticky note
+"LEIA ANTES DE USAR" dentro do próprio workflow — ela explica as limitações:
+
+- A URL do feed RSS não pôde ser validada ao vivo nesta sessão; confirme em
+  `https://g1.globo.com/mg/minas-gerais/` antes de rodar pela primeira vez.
+- O casamento por nome de cidade é aproximado (pode dar falso-positivo/negativo).
+- Só grava `headline`, `url`, `published_at` e `source`. Não faz scraping de
+  comentários — `comment_count` fica sempre 0.
+
 ## O que ainda é mock/pendente
 
 - **Comentários estilo G1** — a UI de comentários da versão anterior (mockup) foi removida
-  desta versão conectada porque ainda não existe fonte real de comentário. Reintroduzir
-  quando o workflow de scraping/RSS do G1 estiver pronto.
-- **Notícias** — a tabela `news_items` existe no schema mas só é populada quando o
-  workflow do G1 for construído (próxima fase, ainda não fizemos).
+  desta versão conectada porque ainda não existe fonte real de comentário (contagem/texto
+  de comentários do G1 não é exposta no RSS). Reintroduzir quando houver uma fonte real
+  para isso.
 - **Radar de proximidade (visualização SVG)** — não veio nesta versão pra manter o
   arquivo enxuto; dá pra trazer de volta do mockup original (`radar_mg_dashboard.jsx`)
   se quiser.
