@@ -9,8 +9,8 @@
       "position": [220, -160],
       "parameters": {
         "width": 660,
-        "height": 340,
-        "content": "## Workflow ajustado ao schema original (radar_mg_schema.sql), tabela news_items\n\nPopula `news_items` a partir do RSS geral de Minas Gerais do G1, casando cada matéria com os municípios cadastrados pelo nome. **Antes de rodar:**\n\n1. Rode `radar_mg_schema.sql` no Supabase primeiro (se ainda não rodou).\n2. Configure a credencial **Supabase** nos 2 nodes Supabase abaixo (Host = sua Project URL, Service Key = SUPABASE_SERVICE_ROLE_KEY — nunca a anon).\n3. No node **Rodar calculate_scores()**, troque a URL e as duas chaves 'COLE_AQUI...' pela sua Project URL + service_role key.\n4. **Confirme a URL do RSS antes de rodar** — não consegui acessar g1.globo.com pra validar ao vivo. Abra `https://g1.globo.com/mg/minas-gerais/` no navegador e procure o ícone/link de RSS (ou 'Ver código-fonte' e busque por `application/rss+xml`); se a URL usada no node 'Buscar feed RSS G1 MG' tiver mudado, atualize lá.\n5. O casamento notícia↔município é por **nome contido no título/resumo** (sem acento, minúsculo). Isso gera falso-positivo ocasional (nome de cidade que também é palavra comum ou nome de pessoa) e falso-negativo (apelido/abreviação da cidade). Revise `news_items` de vez em quando; ajuste o filtro no node 'Casar notícias com municípios' se sobrar muito lixo.\n6. Esse workflow só grava `headline`, `url`, `published_at` e `source='G1'`. **`comment_count` fica sempre 0** — não há scraping de comentários aqui (feature separada, ainda não construída).\n7. O feed RSS só traz as matérias mais recentes (geralmente as últimas ~20-40). Rode com frequência (diária) pra não perder matéria — troque o trigger manual por um Schedule Trigger quando for automatizar."
+        "height": 320,
+        "content": "## Workflow ajustado ao schema original (radar_mg_schema.sql), tabela news_items\n\nPopula `news_items` a partir do RSS geral de Minas Gerais do G1, casando cada matéria com os municípios cadastrados pelo nome. **Antes de rodar:**\n\n1. Rode `radar_mg_schema.sql` no Supabase primeiro (se ainda não rodou).\n2. Configure a credencial **Supabase** no node 'Listar municípios' e no node 'Gravar em news_items' (Host = sua Project URL, Service Key = SUPABASE_SERVICE_ROLE_KEY — nunca a anon).\n3. A URL do RSS (`https://g1.globo.com/rss/g1/mg/`) foi testada ao vivo em 25/08/2026 via n8n e retornou matérias reais e recentes de MG — não deveria precisar de ajuste, mas se um dia parar de retornar itens, confirme em `https://g1.globo.com/mg/minas-gerais/` se o G1 mudou a URL do feed.\n4. O casamento notícia↔município é por **nome contido no título/resumo** (sem acento, minúsculo). Isso gera falso-positivo ocasional (nome de cidade que também é palavra comum ou nome de pessoa) e falso-negativo (apelido/abreviação da cidade). Revise `news_items` de vez em quando; ajuste o filtro no node 'Casar notícias com municípios' se sobrar muito lixo.\n5. Esse workflow só grava `headline`, `url`, `published_at` e `source='G1'`. **`comment_count` fica sempre 0** — não há scraping de comentários aqui (feature separada, ainda não construída).\n6. Não chama `calculate_scores()` no final — `news_items` não entra na fórmula de score (só `raw_signals` entra, ver `radar_mg_schema.sql`).\n7. O feed RSS só traz as matérias mais recentes (geralmente as últimas ~20-40). Rode com frequência (diária) pra não perder matéria — troque o trigger manual por um Schedule Trigger quando for automatizar."
       }
     },
     {
@@ -43,8 +43,9 @@
       "id": "rss_g1",
       "name": "Buscar feed RSS G1 MG",
       "type": "n8n-nodes-base.rssFeedRead",
-      "typeVersion": 1,
+      "typeVersion": 1.2,
       "position": [680, 260],
+      "executeOnce": true,
       "parameters": {
         "url": "https://g1.globo.com/rss/g1/mg/",
         "options": {}
@@ -58,7 +59,7 @@
       "position": [900, 260],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "function normalizar(s) {\n  return (s || \"\")\n    .toString()\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .toLowerCase();\n}\n\nconst municipios = $('Listar municípios').all().map(item => item.json);\nconst itensRss = $input.all().map(item => item.json);\n\nconst resultado = [];\nconst vistos = new Set();\n\nfor (const item of itensRss) {\n  const titulo = item.title || \"\";\n  const resumo = item.contentSnippet || item.content || item.summary || \"\";\n  const link = item.link || item.guid || \"\";\n  if (!link) continue;\n  const textoBusca = normalizar(`${titulo} ${resumo}`);\n\n  for (const m of municipios) {\n    const nomeNormalizado = normalizar(m.name);\n    // nomes com <= 4 letras geram falso-positivo fácil demais (evita casar por substring curta)\n    if (nomeNormalizado.length <= 4) continue;\n    if (!textoBusca.includes(nomeNormalizado)) continue;\n\n    const chave = `${m.id}-${link}`;\n    if (vistos.has(chave)) continue;\n    vistos.add(chave);\n\n    resultado.push({\n      json: {\n        municipio_id: m.id,\n        source: \"G1\",\n        headline: titulo.slice(0, 500),\n        url: link,\n        published_at: item.pubDate || item.isoDate || null,\n      }\n    });\n  }\n}\n\nreturn resultado;"
+        "jsCode": "function normalizar(s) {\n  return (s || \"\")\n    .toString()\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .toLowerCase();\n}\n\nfunction paraIso(data) {\n  const d = new Date(data);\n  return isNaN(d.getTime()) ? null : d.toISOString();\n}\n\nconst municipios = $('Listar municípios').all().map(item => item.json);\nconst itensRss = $input.all().map(item => item.json);\n\nconst resultado = [];\nconst vistos = new Set();\n\nfor (const item of itensRss) {\n  const titulo = item.title || \"\";\n  const resumo = item.contentSnippet || item.content || item.summary || \"\";\n  const link = item.link || item.guid || \"\";\n  if (!link) continue;\n  const textoBusca = normalizar(`${titulo} ${resumo}`);\n\n  for (const m of municipios) {\n    const nomeNormalizado = normalizar(m.name);\n    // nomes com <= 4 letras geram falso-positivo fácil demais (evita casar por substring curta)\n    if (nomeNormalizado.length <= 4) continue;\n    if (!textoBusca.includes(nomeNormalizado)) continue;\n\n    const chave = `${m.id}-${link}`;\n    if (vistos.has(chave)) continue;\n    vistos.add(chave);\n\n    resultado.push({\n      json: {\n        municipio_id: m.id,\n        source: \"G1\",\n        headline: titulo.slice(0, 500),\n        url: link,\n        published_at: paraIso(item.pubDate || item.isoDate),\n      }\n    });\n  }\n}\n\nreturn resultado;"
       }
     },
     {
@@ -80,29 +81,6 @@
           "name": "Supabase RADAR MG (service_role)"
         }
       }
-    },
-    {
-      "id": "call_calculate_scores",
-      "name": "Rodar calculate_scores()",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1340, 260],
-      "parameters": {
-        "method": "POST",
-        "url": "https://SEU-PROJETO.supabase.co/rest/v1/rpc/calculate_scores",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey", "value": "COLE_AQUI_A_SERVICE_ROLE_KEY" },
-            { "name": "Authorization", "value": "Bearer COLE_AQUI_A_SERVICE_ROLE_KEY" },
-            { "name": "Content-Type", "value": "application/json" }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "{}",
-        "options": {}
-      }
     }
   ],
   "connections": {
@@ -117,9 +95,6 @@
     },
     "Casar notícias com municípios": {
       "main": [[{ "node": "Gravar em news_items", "type": "main", "index": 0 }]]
-    },
-    "Gravar em news_items": {
-      "main": [[{ "node": "Rodar calculate_scores()", "type": "main", "index": 0 }]]
     }
   },
   "active": false,

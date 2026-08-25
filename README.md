@@ -86,15 +86,18 @@ Depois:
 
 `radar_mg_n8n_g1_workflow.json` popula a tabela `news_items`: busca o RSS geral de
 Minas Gerais do G1 e casa cada matéria com os municípios cadastrados pelo nome
-(sem acento, minúsculo). Importe no n8n, configure a credencial Supabase e a URL/chaves
-do `calculate_scores()` (mesmos passos do workflow do PNCP), e leia a sticky note
+(sem acento, minúsculo). Importe no n8n, configure a credencial Supabase no node
+"Listar municípios" e no node "Gravar em news_items", e leia a sticky note
 "LEIA ANTES DE USAR" dentro do próprio workflow — ela explica as limitações:
 
-- A URL do feed RSS não pôde ser validada ao vivo nesta sessão; confirme em
-  `https://g1.globo.com/mg/minas-gerais/` antes de rodar pela primeira vez.
+- A URL do feed RSS (`https://g1.globo.com/rss/g1/mg/`) foi testada ao vivo em
+  25/08/2026 (via execução de teste no n8n) e retornou matérias reais e recentes
+  de MG — não deveria precisar de ajuste.
 - O casamento por nome de cidade é aproximado (pode dar falso-positivo/negativo).
 - Só grava `headline`, `url`, `published_at` e `source`. Não faz scraping de
   comentários — `comment_count` fica sempre 0.
+- Não chama `calculate_scores()`: `news_items` não entra na fórmula de score
+  (só `raw_signals` entra).
 
 ## O que ainda é mock/pendente
 
