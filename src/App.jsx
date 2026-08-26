@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Radio, MapPin, TrendingUp, Building2, Ship, Landmark, Users, Search, ChevronRight,
-  Radar as RadarIcon, Newspaper, MessageCircle, ThumbsUp, ThumbsDown, HelpCircle,
-  ExternalLink, AlertTriangle, FileDown, Hash, Play, Pause,
+  Radar as RadarIcon, Newspaper, ThumbsUp, ThumbsDown, HelpCircle,
+  ExternalLink, AlertTriangle, FileDown, Hash, Youtube,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -28,32 +28,6 @@ const SENTIMENTS = [
   { id: "duvida", label: "Dúvida", icon: HelpCircle, color: "#8A96A6" },
   { id: "alerta", label: "Alerta", icon: AlertTriangle, color: "#E24B4A" },
 ];
-
-// "Tipo de raciocínio a seguir" = linha de leitura do comentário.
-// Simulado no cliente por enquanto — sem fonte real de comentário ainda
-// (vira real quando existir um workflow de escuta social/G1 gravando no Supabase).
-const COMMENT_TEMPLATES = [
-  { category: "apoio", text: c => `Já era hora de ${c.name} receber esse tipo de investimento. Região precisa disso há anos.` },
-  { category: "apoio", text: c => `Trabalho na região e confirmo, movimento de obras aumentou muito esse ano.` },
-  { category: "duvida", text: c => `Alguém sabe se esse incentivo vale pra empresa de fora do estado também?` },
-  { category: "duvida", text: c => `Isso vale só pra sede ou os distritos de ${c.name} também entram?` },
-  { category: "alerta", text: c => `Espero que dessa vez o dinheiro chegue mesmo na ponta e não fique só no anúncio.` },
-  { category: "alerta", text: c => `Já vi promessa parecida em ${c.name} há 2 anos que não saiu do papel.` },
-  { category: "critica", text: c => `Isso vai gerar emprego de verdade ou só mais um anúncio de prefeitura?` },
-  { category: "critica", text: c => `Falta transparência em como esse valor vai ser dividido entre os setores.` },
-];
-const NAMES = ["Marcos T.", "Fernanda A.", "Ricardo S.", "Juliana M.", "Paulo H.", "Camila R.", "Eduardo V.", "Beatriz L."];
-
-function makeLiveMessage(city) {
-  const template = COMMENT_TEMPLATES[Math.floor(Math.random() * COMMENT_TEMPLATES.length)];
-  const name = NAMES[Math.floor(Math.random() * NAMES.length)];
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    name,
-    text: template.text(city),
-    category: template.category,
-  };
-}
 
 const HASHTAG_POOL = ["#InvesteMG", "#ObraJá", "#EmpregoAgora", "#IncentivoFiscal", "#ExportaMG", "#CresceMG", "#OportunidadeMG", "#DesenvolvimentoRegional"];
 
@@ -119,9 +93,7 @@ export default function App() {
   const [selectedCity, setSelectedCity] = useState(null);
   const [newsQuery, setNewsQuery] = useState("");
   const [sentimentFilter, setSentimentFilter] = useState("todos");
-  const [liveMessages, setLiveMessages] = useState([]);
-  const [feedPaused, setFeedPaused] = useState(false);
-  const feedRef = useRef(null);
+  const [comments, setComments] = useState([]);
 
   const [scoresData, setScoresData] = useState([]);
   const [ticker, setTicker] = useState([]);
@@ -261,32 +233,33 @@ export default function App() {
 
   const filteredNews = news.filter(n => n.headline.toLowerCase().includes(newsQuery.toLowerCase()));
 
-  // --- Feed ao vivo simulado (reseta ao trocar de cidade, tick a cada ~3s) ---
+  // --- Comentários reais (Supabase social_comments) — comentários de topo de
+  // vídeos do YouTube sobre cada município, coletados pelo n8n. Mesmo padrão
+  // do feed de notícias: sempre os mais recentes de MG, refaz a busca a cada 60s ---
   useEffect(() => {
-    if (!activeCity) return;
-    setLiveMessages(Array.from({ length: 3 }, () => makeLiveMessage(activeCity)));
-  }, [activeCity?.name]);
+    if (envMissing) { setComments([]); return; }
+    let cancelled = false;
+    function fetchComments() {
+      supabase
+        .from("social_comments")
+        .select("author_name, comment_text, sentiment, video_title, video_url, published_at, municipios(name)")
+        .order("published_at", { ascending: false })
+        .limit(30)
+        .then(({ data }) => { if (!cancelled) setComments(data || []); });
+    }
+    fetchComments();
+    const interval = setInterval(fetchComments, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [envMissing]);
 
-  useEffect(() => {
-    if (!activeCity || feedPaused) return;
-    const interval = setInterval(() => {
-      setLiveMessages(prev => [...prev, makeLiveMessage(activeCity)].slice(-40));
-    }, 3200);
-    return () => clearInterval(interval);
-  }, [activeCity?.name, feedPaused]);
-
-  useEffect(() => {
-    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
-  }, [liveMessages]);
-
-  const filteredLiveMessages = liveMessages.filter(m =>
-    sentimentFilter === "todos" || m.category === sentimentFilter
+  const filteredComments = comments.filter(c =>
+    sentimentFilter === "todos" || c.sentiment === sentimentFilter
   );
   const sentimentCounts = useMemo(() => {
     const counts = { apoio: 0, critica: 0, duvida: 0, alerta: 0 };
-    liveMessages.forEach(m => { counts[m.category]++; });
+    comments.forEach(c => { if (counts[c.sentiment] !== undefined) counts[c.sentiment]++; });
     return counts;
-  }, [liveMessages]);
+  }, [comments]);
   const hashtags = useMemo(() => hashtagsFor(activeCity), [activeCity]);
 
   const diagCounts = useMemo(() => {
@@ -316,10 +289,8 @@ export default function App() {
         .mono { font-family: 'IBM Plex Mono', monospace; }
         .display { font-family: 'Space Grotesk', sans-serif; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-        @keyframes feedIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes tickerScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         .pulse-dot { animation: pulse 2s ease-in-out infinite; }
-        .feed-item { animation: feedIn 0.35s ease-out; }
         .ticker-track { animation: tickerScroll 210s linear infinite; }
         .ticker-track:hover { animation-play-state: paused; }
       `}</style>
@@ -567,21 +538,12 @@ export default function App() {
               </div>
             </div>
 
-            {/* Feed ao vivo — comentários simulados, rolando automaticamente */}
+            {/* Comentários reais — coletados pelo n8n de vídeos do YouTube sobre cada município */}
             <div style={{ border: "1px solid #2A3441", borderRadius: 4, padding: 16, background: "#0F141A" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  <span className="pulse-dot" style={{ width: 6, height: 6, borderRadius: "50%", background: feedPaused ? "#5B6675" : "#E24B4A", display: "inline-block" }} />
-                  <span className="mono" style={{ fontSize: 10.5, color: feedPaused ? "#5B6675" : "#E24B4A", letterSpacing: 1, fontWeight: 600 }}>
-                    {feedPaused ? "PAUSADO" : "AO VIVO"}
-                  </span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, marginLeft: 4 }}>Feed de comentários</span>
-                </div>
-                <button onClick={() => setFeedPaused(p => !p)}
-                  style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "1px solid #2A3441", borderRadius: 3, padding: "4px 9px", fontSize: 10.5, color: "#8A96A6", cursor: "pointer" }}>
-                  {feedPaused ? <Play size={11} /> : <Pause size={11} />}
-                  {feedPaused ? "Retomar" : "Pausar"}
-                </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+                <Youtube size={13} color="#E24B4A" />
+                <span className="mono" style={{ fontSize: 10.5, color: "#5B6675", letterSpacing: 1, fontWeight: 600 }}>COMENTÁRIOS REAIS</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, marginLeft: 4 }}>YouTube — MG</span>
               </div>
 
               <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid #1E2530" }}>
@@ -592,7 +554,7 @@ export default function App() {
                     border: `1px solid ${sentimentFilter === "todos" ? "#3DD6C4" : "#2A3441"}`,
                     color: sentimentFilter === "todos" ? "#E9EDF2" : "#8A96A6",
                   }}>
-                  Todos ({liveMessages.length})
+                  Todos ({comments.length})
                 </button>
                 {SENTIMENTS.map(s => {
                   const Icon = s.icon;
@@ -613,29 +575,39 @@ export default function App() {
                 })}
               </div>
 
-              <div ref={feedRef} style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 320, overflowY: "auto", scrollBehavior: "smooth" }}>
-                {filteredLiveMessages.map((m) => {
-                  const sent = SENTIMENTS.find(s => s.id === m.category);
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 320, overflowY: "auto" }}>
+                {filteredComments.map((c, i) => {
+                  const sent = SENTIMENTS.find(s => s.id === c.sentiment);
+                  const iniciais = (c.author_name || "?").replace(/^@/, "").slice(0, 2).toUpperCase();
                   return (
-                    <div key={m.id} className="feed-item" style={{ display: "flex", gap: 9 }}>
+                    <div key={i} style={{ display: "flex", gap: 9 }}>
                       <div className="mono" style={{
                         width: 24, height: 24, borderRadius: "50%", background: "#1C2430", border: "1px solid #2A3441",
                         display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, flexShrink: 0, color: "#3DD6C4",
                       }}>
-                        {m.name.split(" ").map(p => p[0]).join("")}
+                        {iniciais}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                          <span style={{ fontSize: 11.5, fontWeight: 600 }}>{m.name}</span>
+                          <span style={{ fontSize: 11.5, fontWeight: 600 }}>{c.author_name}</span>
                           {sent && <span style={{ fontSize: 9, color: sent.color, border: `1px solid ${sent.color}40`, padding: "1px 5px", borderRadius: 2 }}>{sent.label}</span>}
                         </div>
-                        <div style={{ fontSize: 11.5, color: "#B5BCC7", lineHeight: 1.4, margin: "2px 0 0" }}>{m.text}</div>
+                        <div style={{ fontSize: 11.5, color: "#B5BCC7", lineHeight: 1.4, margin: "2px 0 3px" }}>{c.comment_text}</div>
+                        {c.video_url && (
+                          <a href={c.video_url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#5B6675", textDecoration: "none" }}>
+                            em "{c.video_title}"{c.municipios?.name ? ` · ${c.municipios.name}` : ""}
+                          </a>
+                        )}
                       </div>
                     </div>
                   );
                 })}
-                {filteredLiveMessages.length === 0 && (
-                  <div style={{ fontSize: 11.5, color: "#5B6675", padding: "8px 0" }}>Nenhuma mensagem dessa categoria ainda — aguardando o feed.</div>
+                {filteredComments.length === 0 && (
+                  <div style={{ fontSize: 11.5, color: "#5B6675", padding: "8px 0" }}>
+                    {comments.length === 0
+                      ? "Nenhum comentário real captado ainda pelo workflow de coleta do YouTube."
+                      : "Nenhum comentário dessa categoria ainda."}
+                  </div>
                 )}
               </div>
             </div>

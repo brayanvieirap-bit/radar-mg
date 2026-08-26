@@ -1,0 +1,220 @@
+{
+  "name": "RADAR MG — Coleta YouTube (comentários)",
+  "nodes": [
+    {
+      "id": "sticky_leia_antes",
+      "name": "LEIA ANTES DE USAR",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [100, 300],
+      "parameters": {
+        "width": 640,
+        "height": 320,
+        "content": "## RADAR MG — Coleta YouTube (comentários reais)\n\nPra cada município, busca no YouTube um vídeo recente (últimos 30 dias) sobre prefeitura/investimento/eleição/obra/emprego na cidade, e grava os comentários reais de topo desse vídeo em `social_comments`, classificados por sentimento (apoio/crítica/dúvida/alerta) via palavra-chave no texto do comentário.\n\n**Antes de rodar:**\n1. Rode `add_social_comments.sql` no Supabase (cria a tabela).\n2. Crie a credencial \"YouTube Data API (query key)\" nos 2 nodes HTTP do YouTube abaixo: tipo **Custom Auth**, com um template que aplique `?key=SUA_CHAVE` na query string. Gere a chave ativando a \"YouTube Data API v3\" num projeto no Google Cloud Console (grátis até 10.000 unidades/dia — cada rodada gasta ~100 unidades por município).\n3. Configure a credencial Supabase (Host = sua Project URL, Service Key = SUPABASE_SERVICE_ROLE_KEY) no node 'Listar municípios' e no node 'Gravar em social_comments'.\n4. Troque a URL fixa `https://SEU-PROJETO.supabase.co` no node 'Gravar em social_comments' pela sua Project URL real.\n5. Sem vídeo recente sobre a cidade, ela simplesmente não gera comentário nessa rodada — normal, nem toda cidade tem vídeo toda semana."
+      }
+    },
+    {
+      "id": "trigger_manual",
+      "name": "Executar manualmente",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 260]
+    },
+    {
+      "id": "trigger_diario",
+      "name": "Diário às 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [240, 460],
+      "parameters": {
+        "rule": { "interval": [{ "field": "days", "daysInterval": 1, "triggerAtHour": 8, "triggerAtMinute": 0 }] }
+      }
+    },
+    {
+      "id": "list_municipios",
+      "name": "Listar municípios",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [460, 350],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "municipios",
+        "returnAll": true
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase RADAR MG (service_role)"
+        }
+      }
+    },
+    {
+      "id": "loop_municipios",
+      "name": "Para cada município",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 350],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "id": "buscar_video",
+      "name": "Buscar vídeo no YouTube",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [900, 200],
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/youtube/v3/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "part", "value": "snippet" },
+            { "name": "q", "value": "={{ $json.name }} Minas Gerais prefeitura OR investimento OR eleicao OR obra OR emprego" },
+            { "name": "type", "value": "video" },
+            { "name": "order", "value": "date" },
+            { "name": "maxResults", "value": "3" },
+            { "name": "regionCode", "value": "BR" },
+            { "name": "relevanceLanguage", "value": "pt" },
+            { "name": "publishedAfter", "value": "={{ $now.minus({ days: 30 }).toISO() }}" }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "id": "",
+          "name": "YouTube Data API (query key)"
+        }
+      }
+    },
+    {
+      "id": "extrair_video",
+      "name": "Extrair vídeo em destaque",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const municipioId = $('Para cada município').item.json.id;\nconst response = $input.first().json;\nconst itens = response.items || [];\nif (itens.length === 0) return [];\nconst v = itens[0];\nif (!v?.id?.videoId) return [];\nreturn [{\n  json: {\n    municipioId,\n    videoId: v.id.videoId,\n    videoTitle: v.snippet?.title || '',\n    videoUrl: `https://www.youtube.com/watch?v=${v.id.videoId}`,\n  }\n}];"
+      }
+    },
+    {
+      "id": "buscar_comentarios",
+      "name": "Buscar comentários do vídeo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [1340, 200],
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/youtube/v3/commentThreads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "part", "value": "snippet" },
+            { "name": "videoId", "value": "={{ $json.videoId }}" },
+            { "name": "maxResults", "value": "20" },
+            { "name": "order", "value": "relevance" },
+            { "name": "textFormat", "value": "plainText" }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "id": "",
+          "name": "YouTube Data API (query key)"
+        }
+      }
+    },
+    {
+      "id": "classificar_comentarios",
+      "name": "Classificar sentimento dos comentários",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "function normalizar(s) {\n  return (s || \"\").toString().normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").toLowerCase();\n}\n\nconst PALAVRAS_APOIO = [\"otimo\", \"excelente\", \"parabens\", \"finalmente\", \"merecido\", \"sucesso\", \"gostei\", \"adorei\", \"orgulho\", \"apoio total\", \"show de bola\"];\nconst PALAVRAS_CRITICA = [\"vergonha\", \"ladrao\", \"roubo\", \"corrupcao\", \"mentira\", \"pessimo\", \"decepcao\", \"revoltante\", \"absurdo\", \"descaso\", \"cadeia\"];\nconst PALAVRAS_ALERTA = [\"cuidado\", \"desconfio\", \"so promessa\", \"so no papel\", \"acredito quando ver\", \"propaganda enganosa\", \"ja ouvi isso antes\"];\n\nfunction contemAlguma(texto, lista) {\n  return lista.some(p => texto.includes(p));\n}\n\nfunction classificar(texto) {\n  const t = normalizar(texto);\n  if (contemAlguma(t, PALAVRAS_CRITICA)) return \"critica\";\n  if (contemAlguma(t, PALAVRAS_ALERTA)) return \"alerta\";\n  if (contemAlguma(t, PALAVRAS_APOIO)) return \"apoio\";\n  if (t.includes(\"?\")) return \"duvida\";\n  return \"duvida\";\n}\n\nconst contexto = $('Extrair vídeo em destaque').item.json;\nconst response = $input.first().json;\nconst comentarios = response.items || [];\n\nconst resultado = [];\nfor (const c of comentarios) {\n  const top = c.snippet?.topLevelComment?.snippet;\n  if (!top?.textDisplay) continue;\n  resultado.push({\n    json: {\n      municipio_id: contexto.municipioId,\n      source: \"YouTube\",\n      author_name: top.authorDisplayName || \"Anônimo\",\n      comment_text: top.textDisplay.slice(0, 800),\n      sentiment: classificar(top.textDisplay),\n      video_title: contexto.videoTitle,\n      video_url: contexto.videoUrl,\n      external_id: c.id,\n      published_at: top.publishedAt || null,\n    }\n  });\n}\nreturn resultado;"
+      }
+    },
+    {
+      "id": "gravar_comentarios",
+      "name": "Gravar em social_comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [1780, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "https://SEU-PROJETO.supabase.co/rest/v1/social_comments",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Prefer", "value": "resolution=ignore-duplicates,return=minimal" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "on_conflict", "value": "source,external_id" }]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase RADAR MG (service_role)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Executar manualmente": {
+      "main": [[{ "node": "Listar municípios", "type": "main", "index": 0 }]]
+    },
+    "Diário às 8h": {
+      "main": [[{ "node": "Listar municípios", "type": "main", "index": 0 }]]
+    },
+    "Listar municípios": {
+      "main": [[{ "node": "Para cada município", "type": "main", "index": 0 }]]
+    },
+    "Para cada município": {
+      "main": [
+        [],
+        [{ "node": "Buscar vídeo no YouTube", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar vídeo no YouTube": {
+      "main": [[{ "node": "Extrair vídeo em destaque", "type": "main", "index": 0 }]]
+    },
+    "Extrair vídeo em destaque": {
+      "main": [[{ "node": "Buscar comentários do vídeo", "type": "main", "index": 0 }]]
+    },
+    "Buscar comentários do vídeo": {
+      "main": [[{ "node": "Classificar sentimento dos comentários", "type": "main", "index": 0 }]]
+    },
+    "Classificar sentimento dos comentários": {
+      "main": [[{ "node": "Gravar em social_comments", "type": "main", "index": 0 }]]
+    },
+    "Gravar em social_comments": {
+      "main": [[{ "node": "Para cada município", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "radar-mg-reconstruido"
+  }
+}

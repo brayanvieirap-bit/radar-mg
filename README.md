@@ -15,9 +15,9 @@ Abre em `http://localhost:5173`.
 
 ## Antes de rodar
 
-1. Execute `radar_mg_schema.sql` no SQL Editor do Supabase (cria tabelas + função `calculate_scores()`).
+1. Execute `radar_mg_schema.sql` no SQL Editor do Supabase (cria tabelas + função `calculate_scores()`), e depois `add_social_comments.sql` (cria a tabela de comentários reais).
 2. Popule a tabela `municipios` com os municípios de MG que você quer monitorar.
-3. Importe e rode pelo menos uma vez o workflow n8n do PNCP (`radar_mg_n8n_pncp_workflow.json`) e o do G1 (`radar_mg_n8n_g1_workflow.json`).
+3. Importe e rode pelo menos uma vez os workflows n8n: PNCP (`radar_mg_n8n_pncp_workflow.json`), G1 (`radar_mg_n8n_g1_workflow.json`) e YouTube (`radar_mg_n8n_youtube_workflow.json`).
 4. Se a tela mostrar "Nenhum score encontrado", rode manualmente no SQL Editor:
    ```sql
    select calculate_scores();
@@ -106,12 +106,35 @@ próprio workflow — ela explica as limitações:
 - Não chama `calculate_scores()`: `news_items` não entra na fórmula de score
   (só `raw_signals` entra).
 
+## Workflow n8n do YouTube (comentários reais)
+
+O "Feed de comentários" do dashboard era 100% simulado no cliente (nomes e frases
+geradas aleatoriamente). `radar_mg_n8n_youtube_workflow.json` substitui isso por
+comentários **reais**: pra cada município, busca no YouTube um vídeo recente
+(últimos 30 dias) sobre prefeitura/investimento/eleição/obra/emprego na cidade,
+e grava os comentários reais de topo desse vídeo na tabela `social_comments`
+(criada por `add_social_comments.sql`), classificados por sentimento
+(apoio/crítica/dúvida/alerta) via palavra-chave no texto do comentário. Importe
+no n8n e leia a sticky note "LEIA ANTES DE USAR" dentro do próprio workflow:
+
+- Precisa de uma credencial nova: **YouTube Data API (query key)**, tipo Custom
+  Auth, aplicando `?key=SUA_CHAVE` na query string das 2 chamadas HTTP ao
+  YouTube. Gere a chave ativando a "YouTube Data API v3" num projeto no
+  [Google Cloud Console](https://console.cloud.google.com/) — grátis até
+  10.000 unidades/dia (cada rodada gasta ~100 unidades por município).
+- Não existe seção de comentários pública no G1 (foi verificado ao vivo em
+  26/08/2026 — o G1 descontinuou comentário nativo), por isso a fonte real
+  escolhida foi o YouTube, que já é tematicamente ligado ao que o dashboard
+  monitora (notícia de política/desenvolvimento regional).
+- Sem vídeo recente sobre a cidade, ela simplesmente não gera comentário
+  nessa rodada — normal, nem toda cidade tem vídeo toda semana.
+- A classificação de sentimento é uma heurística simples por palavra-chave
+  (mesmo espírito da classificação de `signal_type` no workflow do PNCP) —
+  ajuste as listas `PALAVRAS_APOIO`/`PALAVRAS_CRITICA`/`PALAVRAS_ALERTA` no
+  node "Classificar sentimento dos comentários" se quiser refinar.
+
 ## O que ainda é mock/pendente
 
-- **Comentários estilo G1** — a UI de comentários da versão anterior (mockup) foi removida
-  desta versão conectada porque ainda não existe fonte real de comentário (contagem/texto
-  de comentários do G1 não é exposta no RSS). Reintroduzir quando houver uma fonte real
-  para isso.
 - **Radar de proximidade (visualização SVG)** — não veio nesta versão pra manter o
   arquivo enxuto; dá pra trazer de volta do mockup original (`radar_mg_dashboard.jsx`)
   se quiser.
