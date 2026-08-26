@@ -85,24 +85,24 @@ Depois:
 ## Workflow n8n do G1 (notícias)
 
 `radar_mg_n8n_g1_workflow.json` popula a tabela `news_items`: busca o RSS geral de
-Minas Gerais do G1, **filtra só matérias de política, desenvolvimento
+Minas Gerais do G1 e **filtra só matérias de política, desenvolvimento
 econômico/infraestrutura ou tecnologia** (por palavra-chave no título — descarta
-crime, clima, trânsito comum, entretenimento etc.) e casa cada uma com os
-municípios cadastrados pelo nome (sem acento, minúsculo, só no título). Importe
-no n8n, configure a credencial Supabase no node "Listar municípios" e no node
+crime, clima, trânsito comum, entretenimento etc.). Se o título também citar uma
+cidade cadastrada, ela é anexada à notícia; senão a notícia fica geral de MG (sem
+cidade específica) — não é mais exigido que a matéria cite uma cidade pra entrar,
+o que aumentou bastante o volume (de ~1 notícia/dia pra ~15-20/dia). Importe no
+n8n, configure a credencial Supabase no node "Listar municípios" e no node
 "Gravar em news_items", e leia a sticky note "LEIA ANTES DE USAR" dentro do
 próprio workflow — ela explica as limitações:
 
 - A URL do feed RSS (`https://g1.globo.com/rss/g1/mg/`) foi testada ao vivo em
   25/08/2026 (via execução de teste no n8n) e retornou matérias reais e recentes
   de MG — não deveria precisar de ajuste.
-- A lista de palavras-chave de tópico e o casamento por nome de cidade são
-  aproximados (por palavra inteira no título) — ajuste o array
-  `PALAVRAS_RELEVANTES` no node "Casar notícias com municípios" se estiver
-  deixando passar lixo ou descartando matéria relevante. É normal uma rodada
-  não achar nenhuma matéria — o filtro é rigoroso de propósito.
-- Só grava `headline`, `url`, `published_at` e `source`. Não faz scraping de
-  comentários — `comment_count` fica sempre 0.
+- A lista de palavras-chave de tópico é aproximada (por palavra inteira no
+  título) — ajuste o array `PALAVRAS_RELEVANTES` no node "Casar notícias com
+  municípios" se estiver deixando passar lixo ou descartando matéria relevante.
+- Só grava `headline`, `url`, `published_at`, `source` e `municipio_id` (pode
+  ser null). Não faz scraping de comentários — `comment_count` fica sempre 0.
 - Não chama `calculate_scores()`: `news_items` não entra na fórmula de score
   (só `raw_signals` entra).
 
