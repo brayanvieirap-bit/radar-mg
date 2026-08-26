@@ -51,6 +51,49 @@ async function pesquisarDadosAprofundados(municipio, persona) {
   }
 }
 
+// Agente de redação: sintetiza score, sinais, notícias e pesquisa aprofundada num
+// sumário executivo objetivo. Só é acionado aqui, dentro da geração de relatório.
+async function gerarSumarioExecutivo(municipio, persona, scoreRow, signals, news, research) {
+  if (!openai) return null;
+  const foco = PERSONA_LABELS[persona] || `a persona "${persona}"`;
+  const score = Number(scoreRow?.score || 0);
+  const band = potentialBand(score).label;
+
+  const sinaisTexto = signals.length
+    ? signals.map((s) => `- [${s.source}] ${s.title || s.signal_type}`).join("\n")
+    : "Nenhum sinal registrado.";
+  const noticiasTexto = news.length
+    ? news.map((n) => `- ${n.headline} (${n.source})`).join("\n")
+    : "Nenhuma notícia registrada.";
+
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-5.6",
+      instructions:
+        "Você é um analista redigindo o sumário executivo de um relatório de diagnóstico " +
+        "municipal para tomada de decisão. Escreva em português, tom profissional, objetivo " +
+        "e direto — sem adjetivos vazios, sem linguagem de marketing, sem otimismo artificial. " +
+        "Baseie-se exclusivamente nos dados fornecidos; nunca invente números, fatos ou fontes " +
+        "que não estejam no material de referência. Se os dados forem escassos, diga isso " +
+        "explicitamente em vez de compensar com adjetivação. Estruture em 2 a 3 parágrafos curtos, " +
+        "separados por linha em branco.",
+      input:
+        `Município: ${municipio.name} (MG)\n` +
+        `Persona do leitor: ${foco}\n` +
+        `Score de potencial: ${score}/100 (faixa: ${band})\n\n` +
+        `Sinais identificados no período:\n${sinaisTexto}\n\n` +
+        `Repercussão recente na imprensa:\n${noticiasTexto}\n\n` +
+        `Pesquisa aprofundada (contexto adicional, pode estar ausente):\n${research || "Não disponível."}\n\n` +
+        `Escreva o sumário executivo do relatório com base apenas nesses dados.`,
+    });
+    const texto = (response.output_text || "").trim();
+    return texto || null;
+  } catch (err) {
+    console.error("Sumário executivo (agente) falhou:", err.message);
+    return null;
+  }
+}
+
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 10, fontFamily: "Helvetica", color: "#444441" },
   headerBar: { backgroundColor: "#0C1015", padding: 16, marginHorizontal: -40, marginTop: -40, marginBottom: 20 },
@@ -79,7 +122,7 @@ function potentialBand(score) {
   return { label: "Baixo Potencial", color: "#5F5E5A" };
 }
 
-function ReportDocument({ municipio, persona, scoreRow, signals, news, research }) {
+function ReportDocument({ municipio, persona, scoreRow, signals, news, research, summary }) {
   const band = potentialBand(Number(scoreRow?.score || 0));
   return React.createElement(
     Document,
@@ -95,6 +138,17 @@ function ReportDocument({ municipio, persona, scoreRow, signals, news, research 
       ),
       React.createElement(Text, { style: styles.title }, "Relatório de Diagnóstico Municipal"),
       React.createElement(Text, { style: styles.subtitle }, `${municipio.name} — Minas Gerais · Persona: ${persona}`),
+
+      React.createElement(Text, { style: styles.sectionHeading }, "Sumário Executivo"),
+      summary
+        ? summary
+            .split("\n\n")
+            .map((par, i) => React.createElement(Text, { style: [styles.body, { marginBottom: 6 }], key: i }, par))
+        : React.createElement(
+            Text,
+            { style: styles.body },
+            "Sumário executivo indisponível para este relatório (agente não configurado ou sem resultados)."
+          ),
 
       React.createElement(Text, { style: styles.sectionHeading }, "Diagnóstico"),
       React.createElement(
@@ -213,6 +267,16 @@ export default async function handler(req, res) {
     // Agente de pesquisa aprofundada — acionado só aqui, sob demanda, ao gerar o relatório.
     const research = await pesquisarDadosAprofundados(municipio, persona);
 
+    // Agente de redação — sintetiza os dados acima num sumário executivo profissional e objetivo.
+    const summary = await gerarSumarioExecutivo(
+      municipio,
+      persona,
+      scoreRow || {},
+      signals || [],
+      news || [],
+      research
+    );
+
     const buffer = await renderToBuffer(
       React.createElement(ReportDocument, {
         municipio,
@@ -221,6 +285,7 @@ export default async function handler(req, res) {
         signals: signals || [],
         news: news || [],
         research,
+        summary,
       })
     );
 
